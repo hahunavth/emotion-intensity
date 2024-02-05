@@ -1,0 +1,5 @@
+**/*.pth
+**/*.pt
+**/*.csv
+**/log.txt
+__pycache__
