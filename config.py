@@ -2,9 +2,9 @@ import yaml
 from types import SimpleNamespace
 
 args = {
-    "preprocess_config": "../vlsp2023-ess/config/preprocess.yaml",
-    "train_config": "../vlsp2023-ess/config/train.yaml",
-    "model_config": "../vlsp2023-ess/config/model.yaml",
+    "preprocess_config": "/kaggle/repo/vlsp2023-ess/config/common//preprocess.yaml",
+    "train_config": "/kaggle/repo/vlsp2023-ess/config/common//train.yaml",
+    "model_config": "/kaggle/repo/vlsp2023-ess/config/common//model.yaml",
 }
 
 args = SimpleNamespace(**args)

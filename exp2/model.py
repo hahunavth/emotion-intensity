@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from reference_encoder import Conv_Net
+from model.reference_encoder import Conv_Net
 
 
 class AdditiveAttention(nn.Module):

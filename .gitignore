@@ -3,3 +3,4 @@
 **/*.csv
 **/log.txt
 __pycache__
+datasets

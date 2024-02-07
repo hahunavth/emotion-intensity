@@ -369,11 +369,12 @@ class ESDataset(Dataset):
         if self.base_dir is not None:
             file = os.path.join(self.base_dir, file)
         mel = pk.load(open(file, "rb"))
-        # wav, _ = librosa.load(file, sr=16000)
-        # wav = librosa.resample(y=wav, orig_sr=16000, target_sr=22050)        
-        # mel_spectrogram, energy = Audio.tools.get_mel_from_wav(wav, self.STFT)
+        pitch_file = file.replace("mel", "pitch")
+        pitch = pk.load(open(pitch_file, "rb"))
+        energy_file = file.replace("mel", "energy")
+        energy = pk.load(open(energy_file, "rb"))
         
-        return mel, self.emo2idx[emotion]
+        return mel, pitch, energy, self.emo2idx[emotion], file
 
 
 class MixDataset(Dataset):
@@ -389,11 +390,12 @@ class MixDataset(Dataset):
                 emo_id_dict[emo] = []
             emo_id_dict[emo].append(idx)
         
+        emo_set_without_neu = set(emo_set).difference(set(["neutral"]))
+        
         def get_one_fn(idx):
             sample = dataset[idx]
-            return {"mel": sample[0], "emotion": sample[1]}
-        
-        return cls(get_one_fn, emo_id_dict, emo_set, wrapped_ds=dataset, **kwargs)
+            return {"mel": sample[0], "pitch": sample[1], "energy": sample[2], "emotion": sample[3]}
+        return cls(get_one_fn, emo_id_dict, emo_set_without_neu=emo_set_without_neu, wrapped_ds=dataset, **kwargs)
 
     
     @classmethod
@@ -412,10 +414,10 @@ class MixDataset(Dataset):
             emo_id_dict[emo].append(i)
         def get_one_fn(idx):
             sample = dataset[idx]
-            return {"mel": sample["mel"], "emotion": sample["emotion2id"]}
+            return {"mel": sample["mel"], "pitch": sample["pitch"], "energy": sample["energy"], "emotion": sample["emotion2id"]}
         return cls(get_one_fn, emo_id_dict, emo_set_without_neu, wrapped_ds=dataset, **kwargs)
-    
-    
+
+
     def __init__(self, get_one_fn, emo_id_dict, emo_set_without_neu, select_n=20000, alpha=0.2, rand_lam_per_batch=True, device='cpu', wrapped_ds=None):
         self.alpha = alpha
         self.rand_lam_per_batch = rand_lam_per_batch
@@ -438,22 +440,14 @@ class MixDataset(Dataset):
 
         neu_mel = torch.from_numpy(neu["mel"])
         emo_mel = torch.from_numpy(emo["mel"])
+        neu_pitch = torch.from_numpy(neu["pitch"])
+        emo_pitch = torch.from_numpy(emo["pitch"])
+        neu_energy = torch.from_numpy(neu["energy"])
+        emo_energy = torch.from_numpy(emo["energy"])
         y_neu = neu["emotion"]
         y_emo = emo["emotion"]
 
-        # min_mel_len = min(neu_mel.size(0), non_neu_mel.size(0))
-        # neu_mel = neu_mel[:min_mel_len]
-        # non_neu_mel = non_neu_mel[:min_mel_len]
-        # # pad to the same length
-        # # max_mel_len = max(neu_mel.size(0), non_neu_mel.size(0))
-        # # neu_mel = F.pad(neu_mel, (0, 0, 0, max_mel_len - neu_mel.size(0)))
-        # # non_neu_mel = F.pad(non_neu_mel, (0, 0, 0, max_mel_len - non_neu_mel.size(0)))
-
-        # xi, lam_i = mixup_data(non_neu_mel, neu_mel, alpha=self.alpha)
-        # xj, lam_j = mixup_data(non_neu_mel, neu_mel, alpha=self.alpha)
-
-        # return xi, xj, lam_i, lam_j, y_neu, y_emo
-        return neu_mel, emo_mel, None, None, y_neu, y_emo
+        return neu_mel, emo_mel, None, None, y_neu, y_emo, neu_pitch, emo_pitch, neu_energy, emo_energy
 
     def __len__(self):
         # return len(self.pair_ids)
@@ -461,7 +455,7 @@ class MixDataset(Dataset):
 
     def collate_fn(self, batch):
         # xi, xj, lam_i, lam_j, y_neu, y_emo = list(zip(*batch))
-        neu_mels, emo_mels, _, _, y_neus, y_emos = list(zip(*batch))
+        neu_mels, emo_mels, _, _, y_neus, y_emos, neu_pitch, emo_pitch, neu_energy, emo_energy = list(zip(*batch))
         batch_size = len(neu_mels)
         lam_i = np.random.beta(self.alpha, self.alpha) if self.alpha != 0 else 0
         lam_j = np.random.beta(self.alpha, self.alpha) if self.alpha != 0 else 0
@@ -477,6 +471,10 @@ class MixDataset(Dataset):
         xjs = []
         xi_lens = []
         xj_lens = []
+        eis = []
+        ejs = []
+        pis = []
+        pjs = []
         # cut to the same length
         for i in range(len(neu_mels)):
             if self.rand_lam_per_batch == False:
@@ -487,12 +485,24 @@ class MixDataset(Dataset):
             min_mel_len = min(neu_mels[i].size(0), emo_mels[i].size(0))
             neu_mel = neu_mels[i][:min_mel_len]
             emo_mel = emo_mels[i][:min_mel_len]
+            _neu_pitch = neu_pitch[i][:min_mel_len]
+            _emo_pitch = emo_pitch[i][:min_mel_len]
+            _neu_energy = neu_energy[i][:min_mel_len]
+            _emo_energy = emo_energy[i][:min_mel_len]
             xi, _ = mixup_data(emo_mel, neu_mel, lam=lam_i[i])
             xj, _ = mixup_data(emo_mel, neu_mel, lam=lam_j[i])
+            pitch_i, _ = mixup_data(_emo_pitch, _neu_pitch, lam=lam_i[i])
+            pitch_j, _ = mixup_data(_emo_pitch, _neu_pitch, lam=lam_j[i])
+            energy_i, _ = mixup_data(_emo_energy, _neu_energy, lam=lam_i[i])
+            energy_j, _ = mixup_data(_emo_energy, _neu_energy, lam=lam_j[i])
+            eis.append(energy_i)
+            ejs.append(energy_j)
+            pis.append(pitch_i)
+            pjs.append(pitch_j)
             xis.append(xi)
             xjs.append(xj)
-            xi_lens.append(len(xi))
-            xj_lens.append(len(xj))
+            # xi_lens.append(len(xi))
+            # xj_lens.append(len(xj))
 
         xi_lens = [len(x) for x in xis]
         xj_lens = [len(x) for x in xjs]
@@ -500,16 +510,21 @@ class MixDataset(Dataset):
         max_xj_len = max(xj_lens)
         xi = [F.pad(x, (0, 0, 0, max_xi_len - len(x))) for x in xis]
         xj = [F.pad(x, (0, 0, 0, max_xj_len - len(x))) for x in xjs]
+        ei = [F.pad(x, (0, max_xi_len - len(x)), mode="constant") for x in eis]
+        ej = [F.pad(x, (0, max_xj_len - len(x)), mode="constant") for x in ejs]
+        pi = [F.pad(x, (0, max_xi_len - len(x)), mode="constant") for x in pis]
+        pj = [F.pad(x, (0, max_xj_len - len(x)), mode="constant") for x in pjs]
         xi = torch.stack(xi)
         xj = torch.stack(xj)
-
+        ei = torch.stack(ei)
+        ej = torch.stack(ej)
+        pi = torch.stack(pi)
+        pj = torch.stack(pj)
         lam_i = torch.tensor(lam_i, requires_grad=False)
         lam_j = torch.tensor(lam_j, requires_grad=False)
-        # xi_lens = torch.tensor(xi_lens)
-        # xj_lens = torch.tensor(xj_lens)
         y_neus = torch.tensor(y_neus, requires_grad=False)
         y_emos = torch.tensor(y_emos, requires_grad=False)
-        return xi, xj, lam_i, lam_j, xi_lens, xj_lens, y_neus, y_emos
+        return xi, xj, pi, pj, ei, ej, lam_i, lam_j, xi_lens, xj_lens, y_neus, y_emos
 
 
 def get_loaders(configs, device):
@@ -547,9 +562,12 @@ def get_loaders(configs, device):
 
 def get_es_loaders(configs, device):
     from sklearn.model_selection import train_test_split
-    ds_dir = "./esd_dataset_processed"
-    list_files = get_list_filesss(ds_dir)
-    list_train, list_val = train_test_split(list_files, test_size=0.1, random_state=42)
+    ds_dir = "./datasets/esd_processed/mel"
+    list_files = get_list_filesss(os.path.join(ds_dir))
+    # list_train, list_val = train_test_split(list_files, test_size=0.1, random_state=42)
+    val_spks = ["0011", "0001", "0015", "0005"]
+    list_train = list(filter(lambda f: f.replace(".pkl", "").split("_")[1] not in val_spks, list_files))
+    list_val = list(filter(lambda f: f.replace(".pkl", "").split("_")[1] in val_spks, list_files))
     train_ds = ESDataset(list_train, base_dir=ds_dir)
     val_ds = ESDataset(list_val, base_dir=ds_dir)
     mix_train_ds = MixDataset.from_es_ds(train_ds, select_n=50000, alpha=1, device="cpu")
@@ -559,7 +577,8 @@ def get_es_loaders(configs, device):
         batch_size=16,
         shuffle=False,
         collate_fn=mix_train_ds.collate_fn,
-        num_workers=36,
+        # num_workers=36,
+        # num_workers=6,
     )
     val_loader = torch.utils.data.DataLoader(
         mix_val_ds,
@@ -573,12 +592,14 @@ def get_es_loaders(configs, device):
 
 if __name__ == "__main__":
     from config import read_config
-    # configs = read_config()
-    # train_loader, val_loader, _, _, _, _ = get_loaders(configs, device="cpu")
-    # train_loader.dataset.alpha=0
-    # for batch in train_loader:
+    configs = read_config()
+    train_loader, val_loader, _, _, _, _ = get_es_loaders(configs, device="cpu")
+    train_loader.dataset.alpha=0
+    for batch in train_loader:
     #     # print(batch)
-    #     xi, xj, lam_i, lam_j, xi_lens, xj_lens, y_neus, y_emos = batch
+        xi, xj, pi, pj, ei, ej, lam_i, lam_j, xi_lens, xj_lens, y_neus, y_emos = batch
+        print(xi.shape, xj.shape, pi.shape, pj.shape, ei.shape, ej.shape, lam_i, lam_j, xi_lens, xj_lens, y_neus, y_emos)
+        break
     #     # emo_count = {}
     #     # for emo in y_emos:
     #     #     emo = emo.item()

@@ -1,9 +1,10 @@
 import math
+from typing import Tuple
 import torch
 import torch.nn.functional as F
 
 
-def mixup_criterion(pred, y_emo, y_neu, lam):
+def mixup_criterion(pred, y_emo, y_neu, lam) -> torch.Tensor:
     w_emo = math.sqrt(1)
     w_neu = math.sqrt(1)
     l_emo = lam * F.cross_entropy(pred, y_emo)
@@ -11,7 +12,8 @@ def mixup_criterion(pred, y_emo, y_neu, lam):
     loss = (w_emo * l_emo + w_neu * l_neu) / (w_emo + w_neu)
     return torch.mean(loss)
 
-def rank_loss(ri, rj, lam_diff):
+
+def rank_loss(ri, rj, lam_diff) -> torch.Tensor:
     p_hat_ij = F.sigmoid(ri - rj)
     rank_loss = torch.mean(- lam_diff @ torch.log(p_hat_ij) - (1 - lam_diff) @ torch.log(1 - p_hat_ij)) / lam_diff.size(0)
     return rank_loss
@@ -26,7 +28,7 @@ class EmotionIntensityLoss:
     def __call__(
         self, 
         predi, predj, y_emo, y_neu, lam_i, lam_j
-    ) -> (torch.Tensor, dict):
+    ) -> Tuple[torch.Tensor, dict]:
         ii, hi, ri = predi
         ij, hj, rj = predj
         
