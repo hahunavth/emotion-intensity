@@ -181,12 +181,14 @@ class RankModel(nn.Module):
             stats_path=stats_path,
         )
         self.emotion_predictor = nn.Linear(fft_dim, n_emotion)
-        self.rank_predictor = nn.Linear(n_emotion, 1)
+        self.rank_predictor = nn.Linear(fft_dim, 1)
 
     def forward(self, x, pitch=None, energy=None, emo_id=None):
-        i, _ = self.intensity_extractor(x, pitch=pitch, energy=energy, emo_id=emo_id)  # (batch, length, n_emotion)
+        i, x = self.intensity_extractor(x, pitch=pitch, energy=energy, emo_id=emo_id)  # (batch, length, n_emotion)
         h = i.mean(dim=1)  # (batch, n_emotion)
-        r = self.rank_predictor(h)  # (batch, 1)
+        
+        r = self.rank_predictor(x)  # (batch, length)
+        r = r.mean(dim=1)
 
         return (
             i,  # Intensity representations
