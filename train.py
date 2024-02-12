@@ -14,7 +14,7 @@ print("Using", device)
 
 configs = read_config()
 train_loader, val_loader, mix_train_set, mix_val_set, _train_set, _val_set = (
-    get_es_loaders(configs, device)
+    get_es_loaders(configs, device, 64)
 )
 
 model, _kwargs = create_model("rank")
@@ -81,12 +81,6 @@ for epoch in _bar:
         loss.backward()
         optimizer.step()
 
-        # losses = {
-        #     "total": loss.item(),
-        #     "mi": mi.item(),
-        #     "mj": mj.item(),
-        #     "rank": ranking_loss.item(),
-        # }
         if total_losses is None:
             total_losses = losses
         else:

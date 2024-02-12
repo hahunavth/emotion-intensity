@@ -1,19 +1,15 @@
 
 import json
-import math
 import os
 
 import torch
 import numpy as np
 import random
 from torch.utils.data import Dataset
-from torch.utils.data import Sampler
-from torch.utils.data.distributed import DistributedSampler
-import torch.distributed as dist
 import torch.nn.functional as F
 
 from text import phoneme_to_ids
-from utils import pad_1D, pad_2D, to_device
+from utils import pad_1D, pad_2D
 
 
 def mixup_data(x_emo, x_neu, alpha=1.0, lam=None):
@@ -332,7 +328,6 @@ def get_list_filesss(ds_dir):
 import audio as Audio
 from torch.utils.data import Dataset
 import torch
-import librosa
 import pickle as pk
 
 
@@ -527,7 +522,7 @@ class MixDataset(Dataset):
         return xi, xj, pi, pj, ei, ej, lam_i, lam_j, xi_lens, xj_lens, y_neus, y_emos
 
 
-def get_loaders(configs, device):
+def get_loaders(configs, device, batch_size):
     preprocess_config, model_config, train_config = configs
     _train_set = EmoFS2Dataset(
         "train.txt", 
@@ -545,14 +540,14 @@ def get_loaders(configs, device):
     val_set = MixDataset.from_emofs2_ds(_val_set, select_n=300, alpha=1, device=device)
     train_loader = torch.utils.data.DataLoader(
         train_set,
-        batch_size=64,
+        batch_size=batch_size,
         shuffle=False,
         collate_fn=train_set.collate_fn,
         num_workers=12,
     )
     val_loader = torch.utils.data.DataLoader(
         val_set,
-        batch_size=8,
+        batch_size=batch_size,
         shuffle=False,
         collate_fn=val_set.collate_fn,
         drop_last=False,
@@ -560,29 +555,28 @@ def get_loaders(configs, device):
     return train_loader, val_loader, train_set, val_set, _train_set, _val_set
 
 
-def get_es_loaders(configs, device):
-    from sklearn.model_selection import train_test_split
+def get_es_loaders(configs, device, batch_size):
     ds_dir = "./datasets/esd_processed/mel"
     list_files = get_list_filesss(os.path.join(ds_dir))
-    # list_train, list_val = train_test_split(list_files, test_size=0.1, random_state=42)
     val_spks = ["0011", "0001", "0015", "0005"]
     list_train = list(filter(lambda f: f.replace(".pkl", "").split("_")[1] not in val_spks, list_files))
     list_val = list(filter(lambda f: f.replace(".pkl", "").split("_")[1] in val_spks, list_files))
     train_ds = ESDataset(list_train, base_dir=ds_dir)
     val_ds = ESDataset(list_val, base_dir=ds_dir)
-    mix_train_ds = MixDataset.from_es_ds(train_ds, select_n=50000, alpha=1, device="cpu")
-    mix_val_ds = MixDataset.from_es_ds(val_ds, select_n=300, alpha=1, device="cpu")
+    mix_train_ds = MixDataset.from_es_ds(train_ds, select_n=50000, alpha=1, device=device)
+    mix_val_ds = MixDataset.from_es_ds(val_ds, select_n=300, alpha=1, device=device)
     train_loader = torch.utils.data.DataLoader(
         mix_train_ds,
-        batch_size=16,
-        shuffle=False,
+        batch_size=batch_size,
+        shuffle=True,
         collate_fn=mix_train_ds.collate_fn,
+        drop_last=True,
         # num_workers=36,
         # num_workers=6,
     )
     val_loader = torch.utils.data.DataLoader(
         mix_val_ds,
-        batch_size=8,
+        batch_size=batch_size,
         shuffle=False,
         collate_fn=mix_val_ds.collate_fn,
         drop_last=False,
