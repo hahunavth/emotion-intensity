@@ -56,8 +56,8 @@ class IntensityExtractor(nn.Module):
     def __init__(
         self,
         mel_dim=80,
-        pitch_dim=48,
-        energy_dim=48,
+        pitch_dim=128,
+        energy_dim=128,
         fft_dim=128,
         num_heads=8,
         # num_layers=4,
@@ -100,11 +100,31 @@ class IntensityExtractor(nn.Module):
 
         self.pos_enc = PositionalEncoder(fft_dim, 1000)
 
-        self.trans_enc = nn.TransformerEncoderLayer(
-            d_model=fft_dim,
-            nhead=num_heads,
-            dim_feedforward=fft_dim * 4,
-            batch_first=True,
+        self.trans_enc = nn.Sequential(
+            nn.TransformerEncoderLayer(
+                d_model=fft_dim,
+                nhead=num_heads,
+                dim_feedforward=fft_dim * 4,
+                batch_first=True,
+            ),
+            nn.TransformerEncoderLayer(
+                d_model=fft_dim,
+                nhead=num_heads,
+                dim_feedforward=fft_dim * 4,
+                batch_first=True,
+            ),
+            # nn.TransformerEncoderLayer(
+            #     d_model=fft_dim,
+            #     nhead=num_heads,
+            #     dim_feedforward=fft_dim * 4,
+            #     batch_first=True,
+            # ),
+            # nn.TransformerEncoderLayer(
+            #     d_model=fft_dim,
+            #     nhead=num_heads,
+            #     dim_feedforward=fft_dim * 4,
+            #     batch_first=True,
+            # ),
         )
         self.conv1d = nn.Conv1d(fft_dim, fft_dim, kernel_size, padding=kernel_size // 2)
 
@@ -150,7 +170,7 @@ class IntensityExtractor(nn.Module):
 class RankModel(nn.Module):
     def __init__(
         self, 
-        fft_dim=128, 
+        fft_dim=256, 
         n_emotion=5,
         stats_path="datasets/esd_processed/stats.json",
     ):
