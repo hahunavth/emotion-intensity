@@ -7,8 +7,9 @@ import torch.nn.functional as F
 def mixup_criterion(pred, y_emo, y_neu, lam) -> torch.Tensor:
     w_emo = math.sqrt(1)
     w_neu = math.sqrt(1)
-    l_emo = lam * F.cross_entropy(pred, y_emo)
-    l_neu = (1 - lam) * F.cross_entropy(pred, y_neu)
+    l_emo = sum([F.cross_entropy(pred[i], y_emo[i]) * lam[i] for i in range(len(pred))]) / len(pred)
+    l_neu = sum([F.cross_entropy(pred[i], y_neu[i]) * (1 - lam[i]) for i in range(len(pred))]) / len(pred)
+    
     loss = (w_emo * l_emo + w_neu * l_neu) / (w_emo + w_neu)
     return torch.mean(loss)
 

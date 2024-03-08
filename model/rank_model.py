@@ -203,3 +203,4 @@ if __name__ == "__main__":
     emo_class = torch.tensor([1, 2])
     i, h, r = model(x, emo_class)
     print(i.size(), h.size(), r.size())
+    print("N params:", sum(p.numel() for p in model.parameters() if p.requires_grad))

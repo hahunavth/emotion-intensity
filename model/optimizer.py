@@ -21,7 +21,7 @@ __factory_scheduler = {
 
 __args_dict_scheduler = {
     'linear': {'start_factor': 1.0, 'end_factor': 0.01, 'total_iters': 100},
-    'exponential': {'gamma': 0.99},
+    'exponential': {'gamma': 0.9}, # 0.99
     'none': {},
 }
 

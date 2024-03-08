@@ -7,7 +7,7 @@ from dataset import get_es_loaders, get_loaders
 from model.loss import EmotionIntensityLoss, mixup_criterion, rank_loss
 from model.optimizer import create_optimizer, create_scheduler
 from model import create_model
-
+from torch.functional import F
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 print("Using", device)
@@ -17,7 +17,7 @@ train_loader, val_loader, mix_train_set, mix_val_set, _train_set, _val_set = (
     get_es_loaders(configs, device, 64)
 )
 
-model, _kwargs = create_model("rank")
+model, _kwargs = create_model("rank3")
 model.to(device)
 
 criterion = EmotionIntensityLoss()
@@ -28,7 +28,7 @@ n_params = sum([p.numel() for p in model.parameters()])
 print(f"Number of parameters: {n_params}")
 
 optimizer, _kwargs = create_optimizer("adam", model.parameters())
-lr_scheduler, _kwargs = create_scheduler("linear", optimizer)
+lr_scheduler, _kwargs = create_scheduler("exponential", optimizer)
 
 # Training loop
 n_epochs = 200
@@ -39,6 +39,8 @@ for epoch in _bar:
 
     # exp3
     train_loader.dataset.alpha = 1.0
+    # train_loader.dataset.rand_lam_per_batch = False
+    val_loader.dataset.alpha = 0.0
     # exp2
     # train_loader.dataset.alpha = epoch / 50 if epoch < 50 else 1.
     # exp1
@@ -72,8 +74,11 @@ for epoch in _bar:
         y_neu = y_neu.to(device)
         y_emo = y_emo.to(device)
 
-        ii, hi, ri = model(xi, pitch=pi, energy=ei, emo_id=y_emo)
-        ij, hj, rj = model(xj, pitch=pj, energy=ej, emo_id=y_emo)
+        # ii, hi, ri = model(xi, pitch=pi, energy=ei, emo_id=y_emo)
+        # ij, hj, rj = model(xj, pitch=pj, energy=ej, emo_id=y_emo)
+        # ii, hi, ri, ij, hj, rj = model(mel=xi, mel2=xj, pitch=pi, pitch2=pj, energy=ei, energy2=ej, emo_id=y_emo, lam=lam_i, lam2=lam_j)
+        ii, hi, ri = model(xi, xi_lens, pitch=pi, energy=ei, emo_id=y_emo)
+        ij, hj, rj = model(xj, xj_lens, pitch=pj, energy=ej, emo_id=y_emo)
 
         loss, losses = criterion((ii, hi, ri), (ij, hj, rj), y_emo, y_neu, lam_i, lam_j)
 
@@ -96,6 +101,55 @@ for epoch in _bar:
         # end step
         step += 1
 
+        # validation
+        if idx % 200 == 0 and idx > 0:
+            # Validation loop
+            model.eval()
+            emo_lb = []
+            emo_pred = []
+            emo_neu_pred = []
+            rank_true = []
+            
+            with torch.no_grad():
+                for val_batch in val_loader:
+                    xi, xj, pi, pj, ei, ej, lam_i, lam_j, xi_lens, xj_lens, y_neu, y_emo = batch
+
+                    xi = xi.to(device)
+                    xj = xj.to(device)
+                    pi = pi.to(device)
+                    pj = pj.to(device)
+                    ei = ei.to(device)
+                    ej = ej.to(device)
+                    lam_i = lam_i.to(device)
+                    lam_j = lam_j.to(device)
+                    y_neu = y_neu.to(device)
+                    y_emo = y_emo.to(device)
+
+                    # ii, hi, ri = model(xi, pitch=pi, energy=ei, emo_id=y_emo)
+                    # ij, hj, rj = model(xj, pitch=pj, energy=ej, emo_id=y_emo)
+                    # ii, hi, ri, ij, hj, rj = model(mel=xi, mel2=xj, pitch=pi, pitch2=pj, energy=ei, energy2=ej, emo_id=y_emo, lam=None, lam2=None)
+                    ii, hi, ri = model(xi, xi_lens, pitch=pi, energy=ei, emo_id=y_emo)
+                    ij, hj, rj = model(xj, xj_lens, pitch=pj, energy=ej, emo_id=y_emo)
+
+                    y_neu_pred = F.softmax(hi, dim=1).argmax(dim=1)
+                    y_pred = F.softmax(hj, dim=1).argmax(dim=1)
+                    
+                    emo_lb.append(y_emo)
+                    emo_pred.append(y_pred)
+                    
+                    rank_true.append(ri < rj)
+                
+                emo_lb = torch.cat(emo_lb, dim=0)
+                emo_pred = torch.cat(emo_pred, dim=0)
+                rank_true = torch.cat(rank_true, dim=0)
+                
+                emo_acc = accuracy_score(emo_lb, emo_pred)
+                print("Emotion Accuracy: ", emo_acc)
+                emo_neu_acc = accuracy_score(y_neu_pred, torch.zeros_like(y_neu_pred))
+                print("Neutral Accuracy: ", emo_neu_acc)
+                
+                print("Rank Accuracy: ", accuracy_score(rank_true, torch.ones_like(rank_true)))
+
     # scheduler.step()
     msg = "Epoch: {}/{}, Losses: {}, Lr: {}".format(
         (epoch + 1),
@@ -105,23 +159,7 @@ for epoch in _bar:
     )
     print(msg)
 
-    # Validation loop
-    # model.eval()
-    # total_val_loss = 0
-    # total_rl_val_loss = 0
-    # total_mx_val_loss = 0
-    # with torch.no_grad():
-    #     for val_batch in val_loader:
-    #         xi_val, xj_val, lam_i_val, lam_j_val, xi_lens, xj_lens, y_neu_val, y_emo_val = val_batch
 
-    #         xi_val = xi_val.to(device)
-    #         xj_val = xj_val.to(device)
-    #         lam_i_val = lam_i_val.to(device)
-    #         lam_j_val = lam_j_val.to(device)
-    #         y_neu_val = y_neu_val.to(device)
-    #         y_emo_val = y_emo_val.to(device)
-
-    #         prediction_val = model(xi_val, xj_val)
     #         loss_val, loss_val_mx, loss_val_rl = model.compute_loss(prediction_val, y_emo_val, y_neu_val, lam_i_val, lam_j_val)
     #         total_val_loss += loss_val.item()
     #         total_rl_val_loss += loss_val_rl.item()
@@ -189,3 +227,5 @@ for epoch in _bar:
 
     if epoch % 5 == 0:
         torch.save({"state_dict": model.state_dict()}, f"rank_model_{epoch}.pt")
+
+    lr_scheduler.step()
