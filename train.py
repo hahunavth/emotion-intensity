@@ -12,7 +12,8 @@ from torch.functional import F
 device = "cuda" if torch.cuda.is_available() else "cpu"
 print("Using", device)
 
-configs = read_config()
+# configs = read_config()
+configs = None
 train_loader, val_loader, mix_train_set, mix_val_set, _train_set, _val_set = (
     get_es_loaders(configs, device, 64)
 )

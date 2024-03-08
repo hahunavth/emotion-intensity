@@ -7,9 +7,27 @@ import numpy as np
 import random
 from torch.utils.data import Dataset
 import torch.nn.functional as F
+import torchvision
 
 from text import phoneme_to_ids
 from utils import pad_1D, pad_2D
+
+
+def _resize_spec_aug(mel, height):  # 68-92
+    """
+    See FreeVC repo
+    https://github.com/OlaWod/FreeVC/blob/main/utils.py?fbclid=IwAR2fgXMm1CWG-p_X61ISYud7MS4I12EnqRqlSYK_Ns3gJn3l8SZoGs0w1vs#L52
+    """
+    # r = np.random.random()
+    # rate = r * 0.3 + 0.85 # 0.85-1.15
+    # height = int(mel.size(-2) * rate)
+    tgt = torchvision.transforms.functional.resize(mel, (height, mel.size(-1)))
+    if height >= mel.size(-2):
+        return tgt[:, : mel.size(-2), :]
+    else:
+        silence = tgt[:, -1:, :].repeat(1, mel.size(-2) - height, 1)
+        silence += torch.randn_like(silence) / 10
+        return torch.cat((tgt, silence), 1)
 
 
 def mixup_data(x_emo, x_neu, alpha=1.0, lam=None):
@@ -23,13 +41,18 @@ def mixup_data(x_emo, x_neu, alpha=1.0, lam=None):
     mixed_x (Tensor): The mixed input data.
     lam (float): The mixup coefficient.
     """
-    if not lam:
+    if lam is None:
         if alpha > 0:
             lam = np.random.beta(alpha, alpha)
         else:
             lam = 1
 
     x_mixed = lam * x_emo + (1 - lam) * x_neu
+
+    # if len(x_emo.size()) == 1:
+    #     x_mixed = lam * x_emo + (1 - lam) * x_neu
+    # else:
+    #     x_mixed = lam * _resize_spec_aug(x_emo.unsqueeze(0), random.randint(68, 92))[0] + (1 - lam) * _resize_spec_aug(x_neu.unsqueeze(0), random.randint(68, 92))[0]
     return x_mixed, lam
 
 
@@ -392,7 +415,6 @@ class MixDataset(Dataset):
             return {"mel": sample[0], "pitch": sample[1], "energy": sample[2], "emotion": sample[3]}
         return cls(get_one_fn, emo_id_dict, emo_set_without_neu=emo_set_without_neu, wrapped_ds=dataset, **kwargs)
 
-    
     @classmethod
     def from_emofs2_ds(cls, dataset, **kwargs):
         emo_set = set(dataset.ser_label)
@@ -411,7 +433,6 @@ class MixDataset(Dataset):
             sample = dataset[idx]
             return {"mel": sample["mel"], "pitch": sample["pitch"], "energy": sample["energy"], "emotion": sample["emotion2id"]}
         return cls(get_one_fn, emo_id_dict, emo_set_without_neu, wrapped_ds=dataset, **kwargs)
-
 
     def __init__(self, get_one_fn, emo_id_dict, emo_set_without_neu, select_n=20000, alpha=0.2, rand_lam_per_batch=True, device='cpu', wrapped_ds=None):
         self.alpha = alpha
@@ -472,24 +493,26 @@ class MixDataset(Dataset):
         pjs = []
         # cut to the same length
         for i in range(len(neu_mels)):
-            if self.rand_lam_per_batch == False:
+            if self.rand_lam_per_batch is False:
                 _lam_i = np.random.beta(self.alpha, self.alpha)
                 _lam_j = np.random.beta(self.alpha, self.alpha)
                 lam_i[i] = _lam_i
                 lam_j[i] = _lam_j
             min_mel_len = min(neu_mels[i].size(0), emo_mels[i].size(0))
-            neu_mel = neu_mels[i][:min_mel_len]
-            emo_mel = emo_mels[i][:min_mel_len]
-            _neu_pitch = neu_pitch[i][:min_mel_len]
-            _emo_pitch = emo_pitch[i][:min_mel_len]
-            _neu_energy = neu_energy[i][:min_mel_len]
-            _emo_energy = emo_energy[i][:min_mel_len]
-            xi, _ = mixup_data(emo_mel, neu_mel, lam=lam_i[i])
-            xj, _ = mixup_data(emo_mel, neu_mel, lam=lam_j[i])
-            pitch_i, _ = mixup_data(_emo_pitch, _neu_pitch, lam=lam_i[i])
-            pitch_j, _ = mixup_data(_emo_pitch, _neu_pitch, lam=lam_j[i])
-            energy_i, _ = mixup_data(_emo_energy, _neu_energy, lam=lam_i[i])
-            energy_j, _ = mixup_data(_emo_energy, _neu_energy, lam=lam_j[i])
+            neu_start = random.randint(0, neu_mels[i].size(0) - min_mel_len)
+            emo_start = random.randint(0, emo_mels[i].size(0) - min_mel_len)
+            neu_mel = neu_mels[i][neu_start:neu_start+min_mel_len]
+            emo_mel = emo_mels[i][emo_start:emo_start+min_mel_len]
+            _neu_pitch = neu_pitch[i][neu_start:neu_start+min_mel_len]
+            _emo_pitch = emo_pitch[i][emo_start:emo_start+min_mel_len]
+            _neu_energy = neu_energy[i][neu_start:neu_start+min_mel_len]
+            _emo_energy = emo_energy[i][emo_start:emo_start+min_mel_len]
+            xi, _ = mixup_data(emo_mel, neu_mel, lam=0) #lam_i[i])
+            xj, _ = mixup_data(emo_mel, neu_mel, lam=1) #lam_j[i])
+            pitch_i, _ = mixup_data(_emo_pitch, _neu_pitch, lam=0) #lam_i[i])
+            pitch_j, _ = mixup_data(_emo_pitch, _neu_pitch, lam=1) #lam_j[i])
+            energy_i, _ = mixup_data(_emo_energy, _neu_energy, lam=0) #lam_i[i])
+            energy_j, _ = mixup_data(_emo_energy, _neu_energy, lam=1) #lam_j[i])
             eis.append(energy_i)
             ejs.append(energy_j)
             pis.append(pitch_i)
@@ -558,13 +581,13 @@ def get_loaders(configs, device, batch_size):
 def get_es_loaders(configs, device, batch_size):
     ds_dir = "./datasets/esd_processed/mel"
     list_files = get_list_filesss(os.path.join(ds_dir))
-    val_spks = ["0011", "0001", "0015", "0005"]
+    val_spks = ["0011", "0001", "0015", "0005", "0016", "0006", "0017", "0007", "0018", "0008", ]
     list_train = list(filter(lambda f: f.replace(".pkl", "").split("_")[1] not in val_spks, list_files))
     list_val = list(filter(lambda f: f.replace(".pkl", "").split("_")[1] in val_spks, list_files))
     train_ds = ESDataset(list_train, base_dir=ds_dir)
     val_ds = ESDataset(list_val, base_dir=ds_dir)
     mix_train_ds = MixDataset.from_es_ds(train_ds, select_n=50000, alpha=1, device=device)
-    mix_val_ds = MixDataset.from_es_ds(val_ds, select_n=300, alpha=1, device=device)
+    mix_val_ds = MixDataset.from_es_ds(val_ds, select_n=3000, alpha=1, device=device)
     train_loader = torch.utils.data.DataLoader(
         mix_train_ds,
         batch_size=batch_size,
@@ -586,7 +609,8 @@ def get_es_loaders(configs, device, batch_size):
 
 if __name__ == "__main__":
     from config import read_config
-    configs = read_config()
+    # configs = read_config()
+    configs = None
     train_loader, val_loader, _, _, _, _ = get_es_loaders(configs, device="cpu")
     train_loader.dataset.alpha=0
     for batch in train_loader:
