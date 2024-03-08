@@ -595,7 +595,7 @@ def get_es_loaders(configs, device, batch_size):
         collate_fn=mix_train_ds.collate_fn,
         drop_last=True,
         # num_workers=36,
-        # num_workers=6,
+        num_workers=4,
     )
     val_loader = torch.utils.data.DataLoader(
         mix_val_ds,
@@ -603,6 +603,7 @@ def get_es_loaders(configs, device, batch_size):
         shuffle=False,
         collate_fn=mix_val_ds.collate_fn,
         drop_last=False,
+        num_workers=4,
     )
     return train_loader, val_loader, mix_train_ds, mix_val_ds, train_ds, val_ds
     

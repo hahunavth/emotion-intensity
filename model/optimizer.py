@@ -9,19 +9,21 @@ __factory_optim = {
 }
 
 __args_dict_optim = {
-    'adam': {'lr': 0.0001, 'betas': (0.9, 0.98)},
+    'adam': {'lr': 0.0005, 'betas': (0.9, 0.98)},
     'sgd': {'lr': 0.001},
 }
 
 __factory_scheduler = {
     'linear': lr_scheduler.LinearLR,
     'exponential': lr_scheduler.ExponentialLR,
+    "reduce": lr_scheduler.ReduceLROnPlateau,
     'none': None,
 }
 
 __args_dict_scheduler = {
-    'linear': {'start_factor': 1.0, 'end_factor': 0.01, 'total_iters': 100},
-    'exponential': {'gamma': 0.9}, # 0.99
+    'linear': {'start_factor': 1.0, 'end_factor': 0.1, 'total_iters': 200},
+    'exponential': {'gamma': 0.93}, # 0.99
+    'reduce': {"factor": 0.1, "patience": 4, "threshold": 0.01, "cooldown": 0, "min_lr": 0.000001, "mode": "min"},
     'none': {},
 }
 

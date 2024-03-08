@@ -188,7 +188,7 @@ class IntensityExtractor(torch.nn.Module):
         kernel_size=3,
         n_emotion=5,
         emotion_dim=32,
-        n_layers=3,
+        n_layers=1,
     ):
         super(IntensityExtractor, self).__init__()
         self.input_projection = nn.Linear(mel_dim + pitch_dim + energy_dim, fft_dim)
@@ -217,7 +217,7 @@ class IntensityExtractor(torch.nn.Module):
         x = mel  # (batch, length, channels)
         x = self.input_projection(x)
 
-        mask = torch.arange(x.size(1)).unsqueeze(0) >= mel_lens.unsqueeze(1)
+        mask = torch.arange(x.size(1)).unsqueeze(0).to(mel.device) >= mel_lens.unsqueeze(1)
         slf_attn_mask = mask.unsqueeze(1).expand(-1, x.size(1), -1)
         
         for layer in self.layer_stack:
@@ -248,22 +248,25 @@ class RankModel(nn.Module):
         self.n_emotion = n_emotion
         
         self.intensity_extractor = IntensityExtractor(fft_dim=fft_dim, n_emotion=n_emotion)
-        self.projector = nn.Linear(fft_dim, 1)
+        # self.projector = nn.Linear(fft_dim, 1)
+        self.projector = nn.Linear(n_emotion, 1)
 
     def forward(self, mel, mel_lens, pitch=None, energy=None, emo_id=None):
         if isinstance(mel_lens, list):
-            mel_lens = torch.tensor(mel_lens)
+            mel_lens = torch.tensor(mel_lens).to(mel.device)
         
         i, x = self.intensity_extractor(mel, mel_lens, pitch=pitch, energy=energy, emo_id=emo_id)
         
-        mask = torch.arange(x.size(1)).unsqueeze(0) >= mel_lens.unsqueeze(1)
+        mask = torch.arange(x.size(1)).unsqueeze(0).to(mel.device) >= mel_lens.unsqueeze(1)
 
-        h = x.masked_fill(mask.unsqueeze(-1), 0)
-        h = x.sum(dim=1) / mel_lens.unsqueeze(1)
-        
-        r = self.projector(x)
-        r = r.squeeze(2).masked_fill(mask, 0)
-        r = r.sum(dim=1) / mel_lens.unsqueeze(1)
+        h = i.masked_fill(mask.unsqueeze(-1), 0)
+        h = i.sum(dim=1) / mel_lens.unsqueeze(1)
+
+        # r = self.projector(x)
+        r = self.projector(h).squeeze(0)
+        r = F.tanh(r)
+        # r = r.squeeze(2).masked_fill(mask, 0)
+        # r = r.sum(dim=1) / mel_lens.unsqueeze(1)
         
         return i, h, r
 

@@ -15,7 +15,7 @@ print("Using", device)
 # configs = read_config()
 configs = None
 train_loader, val_loader, mix_train_set, mix_val_set, _train_set, _val_set = (
-    get_es_loaders(configs, device, 64)
+    get_es_loaders(configs, device, 128)
 )
 
 model, _kwargs = create_model("rank3")
@@ -32,7 +32,7 @@ optimizer, _kwargs = create_optimizer("adam", model.parameters())
 lr_scheduler, _kwargs = create_scheduler("exponential", optimizer)
 
 # Training loop
-n_epochs = 200
+n_epochs = 100
 step = 0
 _bar = tqdm.tqdm(range(n_epochs))
 for epoch in _bar:
@@ -110,6 +110,9 @@ for epoch in _bar:
             emo_pred = []
             emo_neu_pred = []
             rank_true = []
+            ris = []
+            rjs = []
+            losses = []
             
             with torch.no_grad():
                 for val_batch in val_loader:
@@ -132,13 +135,21 @@ for epoch in _bar:
                     ii, hi, ri = model(xi, xi_lens, pitch=pi, energy=ei, emo_id=y_emo)
                     ij, hj, rj = model(xj, xj_lens, pitch=pj, energy=ej, emo_id=y_emo)
 
-                    y_neu_pred = F.softmax(hi, dim=1).argmax(dim=1)
-                    y_pred = F.softmax(hj, dim=1).argmax(dim=1)
+                    loss, _ = criterion((ii, hi, ri), (ij, hj, rj), y_emo, y_neu, lam_i, lam_j)
+                    losses.append(loss.detach().cpu().item())
+
+                    y_neu_pred = F.softmax(hi, dim=1).argmax(dim=1).detach().cpu()
+                    y_pred = F.softmax(hj, dim=1).argmax(dim=1).detach().cpu()
+                    
+                    y_emo = y_emo.detach().cpu()
+                    y_neu = y_neu.detach().cpu()
                     
                     emo_lb.append(y_emo)
                     emo_pred.append(y_pred)
                     
-                    rank_true.append(ri < rj)
+                    rank_true.append(ri.detach().cpu() - 0.1 < rj.detach().cpu())
+                    ris.append(ri.detach().cpu())
+                    rjs.append(rj.detach().cpu())
                 
                 emo_lb = torch.cat(emo_lb, dim=0)
                 emo_pred = torch.cat(emo_pred, dim=0)
@@ -150,6 +161,17 @@ for epoch in _bar:
                 print("Neutral Accuracy: ", emo_neu_acc)
                 
                 print("Rank Accuracy: ", accuracy_score(rank_true, torch.ones_like(rank_true)))
+                
+                ris = torch.concat(ris)
+                rjs = torch.concat(rjs)
+                print("Ri: ", ris.mean(), ris.std())
+                print("Rj: ", rjs.mean(), rjs.std())
+                
+                loss = sum(losses) / len(losses)
+                print(loss)
+                
+                # lr_scheduler.step(loss)
+                
 
     # scheduler.step()
     msg = "Epoch: {}/{}, Losses: {}, Lr: {}".format(
@@ -227,6 +249,7 @@ for epoch in _bar:
     #     f.write("\n")
 
     if epoch % 5 == 0:
+        print("Saving model")
         torch.save({"state_dict": model.state_dict()}, f"rank_model_{epoch}.pt")
 
     lr_scheduler.step()
