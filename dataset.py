@@ -115,12 +115,12 @@ class EmoFS2Dataset(Dataset):
             prefix + "energy-{}.npy".format(basename),
         )
         energy = np.load(energy_path)
-        duration_path = os.path.join(
-            self.preprocessed_path,
-            "duration",
-            prefix + "duration-{}.npy".format(basename),
-        )
-        duration = np.load(duration_path)
+        # duration_path = os.path.join(
+        #     self.preprocessed_path,
+        #     "duration",
+        #     prefix + "duration-{}.npy".format(basename),
+        # )
+        # duration = np.load(duration_path)
         if mel.shape[0] <= 8:
             return self.__getitem__(random.randint(0, self.__len__()-1))
 
@@ -132,7 +132,7 @@ class EmoFS2Dataset(Dataset):
             "mel": mel,
             "pitch": pitch,
             "energy": energy,
-            "duration": duration,
+            # "duration": duration,
             "emotion2id":emotion2id
         }
         return sample
@@ -547,6 +547,7 @@ class MixDataset(Dataset):
 
 def get_loaders(configs, device, batch_size):
     preprocess_config, model_config, train_config = configs
+    print(preprocess_config)
     _train_set = EmoFS2Dataset(
         "train.txt", 
         preprocess_config, 

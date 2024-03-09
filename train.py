@@ -116,7 +116,7 @@ for epoch in _bar:
             
             with torch.no_grad():
                 for val_batch in val_loader:
-                    xi, xj, pi, pj, ei, ej, lam_i, lam_j, xi_lens, xj_lens, y_neu, y_emo = batch
+                    xi, xj, pi, pj, ei, ej, lam_i, lam_j, xi_lens, xj_lens, y_neu, y_emo = val_batch
 
                     xi = xi.to(device)
                     xj = xj.to(device)
