@@ -208,6 +208,7 @@ class IntensityExtractor(torch.nn.Module):
                 for _ in range(n_layers)
             ]
         )
+        self.n_layers = n_layers
 
         self.emotion_embedding = nn.Embedding(n_emotion - 1, emotion_dim)
         
@@ -219,19 +220,19 @@ class IntensityExtractor(torch.nn.Module):
 
         mask = torch.arange(x.size(1)).unsqueeze(0).to(mel.device) >= mel_lens.unsqueeze(1)
         slf_attn_mask = mask.unsqueeze(1).expand(-1, x.size(1), -1)
-        
-        for layer in self.layer_stack:
+
+        for idx, layer in enumerate(self.layer_stack):
+            if idx == self.n_layers - 1:
+                if emo_id is not None:
+                    emotion_embed = (
+                        self.emotion_embedding(emo_id - 1)
+                        .unsqueeze(1)
+                        .expand(-1, x.size(1), -1)
+                    )
+                    emotion_embed = F.pad(emotion_embed, (0, x.size(2) - emotion_embed.size(2)))
+                    x = x + emotion_embed
             x, _ = layer(x, mask=mask, slf_attn_mask=slf_attn_mask)
-            
-        if emo_id is not None:
-            emotion_embed = (
-                self.emotion_embedding(emo_id - 1)
-                .unsqueeze(1)
-                .expand(-1, x.size(1), -1)
-            )
-            emotion_embed = F.pad(emotion_embed, (0, x.size(2) - emotion_embed.size(2)))
-            x = x + emotion_embed
-            
+
         i = self.emo_prediction(x)
         
         return i, x
@@ -247,13 +248,21 @@ class RankModel(nn.Module):
         self.fft_dim = fft_dim
         self.n_emotion = n_emotion
         
-        self.intensity_extractor = IntensityExtractor(fft_dim=fft_dim, n_emotion=n_emotion)
-        # self.projector = nn.Linear(fft_dim, 1)
-        self.projector = nn.Linear(n_emotion, 1)
+        self.intensity_extractor = IntensityExtractor(mel_dim=82, fft_dim=fft_dim, n_emotion=n_emotion)
+        self.projector = nn.Linear(fft_dim, 1)
+        # self.projector = nn.Linear(n_emotion, 1)
 
     def forward(self, mel, mel_lens, pitch=None, energy=None, emo_id=None):
         if isinstance(mel_lens, list):
             mel_lens = torch.tensor(mel_lens).to(mel.device)
+        
+        if pitch is not None:
+            # to dtype float32
+            pitch = pitch.unsqueeze(-1).float()
+            mel = torch.cat([mel, pitch], dim=-1)
+        if energy is not None:
+            energy = energy.unsqueeze(-1).float()
+            mel = torch.cat([mel, energy], dim=-1)
         
         i, x = self.intensity_extractor(mel, mel_lens, pitch=pitch, energy=energy, emo_id=emo_id)
         
@@ -262,11 +271,11 @@ class RankModel(nn.Module):
         h = i.masked_fill(mask.unsqueeze(-1), 0)
         h = i.sum(dim=1) / mel_lens.unsqueeze(1)
 
-        # r = self.projector(x)
-        r = self.projector(h).squeeze(0)
-        r = F.tanh(r)
-        # r = r.squeeze(2).masked_fill(mask, 0)
-        # r = r.sum(dim=1) / mel_lens.unsqueeze(1)
+        # r = self.projector(h).squeeze(0)
+        # r = F.tanh(r)
+        r = self.projector(x)
+        r = r.squeeze(2).masked_fill(mask, 0)
+        r = r.sum(dim=1) / mel_lens
         
         return i, h, r
 
