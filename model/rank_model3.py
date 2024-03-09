@@ -183,12 +183,12 @@ class IntensityExtractor(torch.nn.Module):
         mel_dim=80,
         pitch_dim=0,
         energy_dim=0,
-        fft_dim=256,
+        fft_dim=128,
         num_heads=4,
         kernel_size=3,
         n_emotion=5,
         emotion_dim=32,
-        n_layers=3,
+        n_layers=1,
     ):
         super(IntensityExtractor, self).__init__()
         self.input_projection = nn.Linear(mel_dim + pitch_dim + energy_dim, fft_dim)
@@ -210,7 +210,7 @@ class IntensityExtractor(torch.nn.Module):
         )
         self.n_layers = n_layers
 
-        self.emotion_embedding = nn.Embedding(n_emotion - 1, emotion_dim)
+        self.emotion_embedding = nn.Embedding(n_emotion - 1, n_emotion )
         
         self.emo_prediction = nn.Linear(fft_dim, n_emotion)
 
@@ -222,18 +222,24 @@ class IntensityExtractor(torch.nn.Module):
         slf_attn_mask = mask.unsqueeze(1).expand(-1, x.size(1), -1)
 
         for idx, layer in enumerate(self.layer_stack):
-            if idx == self.n_layers - 1:
-                if emo_id is not None:
-                    emotion_embed = (
-                        self.emotion_embedding(emo_id - 1)
-                        .unsqueeze(1)
-                        .expand(-1, x.size(1), -1)
-                    )
-                    emotion_embed = F.pad(emotion_embed, (0, x.size(2) - emotion_embed.size(2)))
-                    x = x + emotion_embed
             x, _ = layer(x, mask=mask, slf_attn_mask=slf_attn_mask)
 
         i = self.emo_prediction(x)
+
+        if emo_id is not None:
+            # emotion_embed = (
+            #     self.emotion_embedding(emo_id - 1)
+            #     .unsqueeze(1)
+            #     .expand(-1, x.size(1), -1)
+            # )
+            # emotion_embed = F.pad(emotion_embed, (0, x.size(2) - emotion_embed.size(2)))
+            # x = x + emotion_embed
+            emotion_embed = (
+                self.emotion_embedding(emo_id - 1)
+                .unsqueeze(1)
+                .expand(-1, i.size(1), -1)
+            )
+            i = i + emotion_embed
         
         return i, x
 
