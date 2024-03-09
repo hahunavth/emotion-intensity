@@ -188,7 +188,7 @@ class IntensityExtractor(torch.nn.Module):
         kernel_size=3,
         n_emotion=5,
         emotion_dim=32,
-        n_layers=1,
+        n_layers=3,
     ):
         super(IntensityExtractor, self).__init__()
         self.input_projection = nn.Linear(mel_dim + pitch_dim + energy_dim, fft_dim)
